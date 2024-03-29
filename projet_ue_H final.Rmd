@@ -1,0 +1,315 @@
+```{r}
+library(readr)
+data <- read_csv("C:/Users/Utilisateur/Downloads/statmodels_epidem/fetal_health.csv")
+View(fetal_health)
+```
+
+
+```{r}
+nrow(data)
+```
+```{r}
+ncol(data)
+```
+```{r}
+head(data)
+```
+```{r}
+table_fetal_health <- table(data$fetal_health)
+
+barplot(table_fetal_health, 
+        main = "Distribution de fetal_health",
+        xlab = "Fetal Health",
+        ylab = "Fréquence",
+        col = "skyblue")
+
+```
+```{r}
+hist(data$histogram_mean, 
+     main = "Distribution de histogram_mean",
+     xlab = "Fréquence cardiaque moyenne du foetus",
+     ylab = "Fréquence",
+     col = "skyblue")
+
+```
+```{r}
+table_uterine_contractions <- table(data$uterine_contractions)
+
+barplot(table_uterine_contractions, 
+        main = "Distribution des contractions utérines",
+        xlab = "Contractions utérines par seconde",
+        ylab = "Fréquence",
+        col = "skyblue")
+
+
+```
+
+```{r}
+install.packages("corrplot")
+
+library(corrplot)
+
+correlation_matrix <- cor(data)
+
+corrplot(correlation_matrix, method = "color",tl.cex=0.4)
+
+```
+
+```{r}
+X <- data[, -which(names(data) == "fetal_health")]
+
+y <- data$fetal_health
+
+library(caret)
+
+standardize <- function(x) {
+  (x - mean(x)) / sd(x)
+}
+
+X_df <- as.data.frame(lapply(X, standardize))
+```
+
+
+```{r}
+install.packages("caTools") # Pour la fonction sample.split
+install.packages("caret")   # Pour la fonction train
+install.packages("rpart")
+install.packages("rpart.plot")
+install.packages("e1071")
+install.packages("Metrics")
+```
+
+```{r}
+library(caTools)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(e1071)
+library(Metrics)
+
+```
+In the context of feature selection, the Chi-square test can be used to evaluate the relationship between each feature and the target variable. By computing the Chi-square statistic and its associated p-value for each feature, we can assess their significance and select the most informative ones.
+
+
+```{r}
+# Step 1: Calculate Chi-Squared Statistics
+chi_squared_results <- apply(X_df, 2, function(x) chisq.test(x, y)$statistic)
+
+# Step 2: Select Features (using significance level 0.05)
+significance_level <- 0.05
+selected_features <- names(chi_squared_results)[chi_squared_results > qchisq(1 - significance_level, 1)]
+
+# Step 3: Create New Dataset with Selected Features
+relevant_data <- X_df[, selected_features]
+
+# Check dimensions
+dim(relevant_data)
+
+
+```
+
+
+
+
+
+
+```{r}
+# Install and load the Boruta package
+install.packages("Boruta")
+library(Boruta)
+
+# Assume X is your feature data frame and y is your target vector
+# Make sure to convert y to a factor if it's not already
+
+# Run Boruta algorithm
+boruta_result <- Boruta(as.factor(y) ~ ., data = X_df)
+
+# Get selected features
+selected_features <- getSelectedAttributes(boruta_result)
+
+# Print selected features
+print(selected_features)
+
+
+```
+```{r}
+# Plot Boruta results
+plot(boruta_result, main = "Boruta Feature Importance")
+
+```
+```{r}
+imp_mean <- apply(boruta_result$ImpHistory,2, mean)
+sort(imp_mean)[4:8]
+
+```
+
+
+```{r}
+relevant_features <- data[,c("accelerations","fetal_movement","uterine_contractions","prolongued_decelerations","abnormal_short_term_variability","mean_value_of_short_term_variability","percentage_of_time_with_abnormal_long_term_variability","mean_value_of_long_term_variability","histogram_width","histogram_min","histogram_max","histogram_mode","histogram_mean","histogram_median","histogram_variance")]
+
+head(relevant_features)
+```
+
+
+```{r}
+set.seed(42)
+y <- as.factor(y)
+train_index <- createDataPartition(y, p = 0.8, list = FALSE)
+X_train <- relevant_features[train_index, ]
+y_train <- y[train_index]
+X_test <- relevant_features[-train_index, ]
+y_test <- y[-train_index]
+dim(X_train)
+dim(as.factor(y_train))
+dim(X_test)
+dim(y_test)
+X_test
+
+```
+
+
+
+```{r}
+pipeline_dt <- train(
+  x = X_train,
+  y = as.factor(y_train),
+  method = "rpart",
+  trControl = trainControl(method = "cv", number = 5),
+  metric = "Accuracy"
+)
+
+pipeline_rf <- train(
+  x = X_train,
+  y = as.factor(y_train),
+  method = "rf",
+  trControl = trainControl(method = "cv", number = 5),
+  metric = "Accuracy"
+)
+
+pipeline_svc <- train(
+  x = X_train,
+  y = as.factor(y_train),
+  method = "svmRadial",
+  trControl = trainControl(method = "cv", number = 5),
+  metric = "Accuracy"
+)
+
+# Liste de tous les pipelines
+pipelines <- list(pipeline_dt, pipeline_rf, pipeline_svc)
+
+# Nom des modèles
+pipe_names <- c("Decision Tree", "Random Forest", "SVM")
+
+# Afficher les résultats de la validation croisée
+for (i in 1:length(pipelines)) {
+  cat(pipe_names[i], "Accuracy:", mean(pipelines[[i]]$results$Accuracy), "\n")
+}
+```
+
+```{r}
+predictions <- predict(pipeline_rf, newdata = X_test)
+
+accuracy <- mean(predictions == y_test)
+print(accuracy)
+
+```
+
+
+```{r}
+# Entraîner le modèle sans spécifier tuneGrid
+tuned_model <- train(
+  x = X_train,
+  y = as.factor(y_train),
+  method = "rf",
+  trControl = trainControl(method = "cv", number = 10)
+)
+
+# Afficher les meilleurs paramètres
+print(tuned_model)
+
+```
+
+
+```{r}
+predict(tuned_model, newdata = X_test)
+```
+
+```{r}
+y_test
+```
+
+```{r}
+# Obtenir les prédictions sur l'ensemble de test avec le modèle de forêt aléatoire entraîné
+predictions <- predict(tuned_model, newdata = X_test)
+
+# Calculer l'accuracy
+accuracy <- sum(predictions == y_test) / length(y_test)
+
+# Calculer le rappel, la précision et le F1 manuellement
+conf_matrix <- table(y_test, predictions)
+recall <- sum(diag(conf_matrix)) / sum(rowSums(conf_matrix))
+precision <- sum(diag(conf_matrix)) / sum(colSums(conf_matrix))
+f1_score <- 2 * (precision * recall) / (precision + recall)
+
+# Afficher les résultats
+cat("********* Metrics *********\n")
+cat(paste("Accuracy:", accuracy), "\n")
+cat(paste("Recall:", recall), "\n")
+cat(paste("Precision:", precision), "\n")
+cat(paste("F1 Score:", f1_score), "\n")
+
+
+```
+```{r}
+conf_matrix
+```
+
+```{r}
+# Calcul des métriques pour chaque classe
+recall <- diag(conf_matrix) / rowSums(conf_matrix)
+precision <- diag(conf_matrix) / colSums(conf_matrix)
+f1_score <- 2 * (precision * recall) / (precision + recall)
+
+# Calcul de l'exactitude (accuracy) pour chaque classe
+accuracy_per_class <- diag(conf_matrix) / colSums(conf_matrix)
+
+# Calcul de l'exactitude moyenne
+accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
+
+# Calcul de la moyenne des métriques pour chaque classe
+mean_recall <- mean(recall)
+mean_precision <- mean(precision)
+mean_f1_score <- mean(f1_score)
+
+# Afficher les résultats
+cat("********* Metrics *********\n")
+
+cat("Class 1\n")
+cat(paste("Accuracy:", accuracy_per_class[1]), "\n")
+cat(paste("Recall:", recall[1]), "\n")
+cat(paste("Precision:", precision[1]), "\n")
+cat(paste("F1 Score:", f1_score[1]), "\n\n")
+
+cat("Class 2\n")
+cat(paste("Accuracy:", accuracy_per_class[2]), "\n")
+cat(paste("Recall:", recall[2]), "\n")
+cat(paste("Precision:", precision[2]), "\n")
+cat(paste("F1 Score:", f1_score[2]), "\n\n")
+
+cat("Class 3\n")
+cat(paste("Accuracy:", accuracy_per_class[3]), "\n")
+cat(paste("Recall:", recall[3]), "\n")
+cat(paste("Precision:", precision[3]), "\n")
+cat(paste("F1 Score:", f1_score[3]), "\n\n")
+
+cat("Average Metrics Across Classes\n")
+cat("Mean Accuracy:", accuracy, "\n")
+cat(paste("Mean Recall:", mean_recall), "\n")
+cat(paste("Mean Precision:", mean_precision), "\n")
+cat(paste("Mean F1 Score:", mean_f1_score), "\n")
+
+
+
+```
+
+
